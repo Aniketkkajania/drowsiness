@@ -1,10 +1,10 @@
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, File, UploadFile, HTTPException
 import cv2
 import numpy as np
 import dlib
 from imutils import face_utils
 
-app = Flask(__name__)
+app = FastAPI()
 
 detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
@@ -29,7 +29,7 @@ def blinked(a, b, c, d, e, f):
         return 0
 
 def detect_status(image_path):
-    global sleep, drowsy, active # Declare these variables as global
+    global sleep, drowsy, active  # Declare these variables as global
 
     frame = cv2.imread(image_path)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -41,12 +41,10 @@ def detect_status(image_path):
         landmarks = predictor(gray, face)
         landmarks = face_utils.shape_to_np(landmarks)
 
-
         left_blink = blinked(landmarks[36], landmarks[37],
                              landmarks[38], landmarks[41], landmarks[40], landmarks[39])
         right_blink = blinked(landmarks[42], landmarks[43],
                               landmarks[44], landmarks[47], landmarks[46], landmarks[45])
-
 
         if left_blink == 0 or right_blink == 0:
             status = "SLEEPING !!!"
@@ -57,16 +55,15 @@ def detect_status(image_path):
 
     return status
 
-@app.route('/detect_status', methods=['POST'])
-def detect_status_api():
-    if 'file' not in request.files:
-        return jsonify({"error": "No image provided"}), 400
+@app.post("/detect_status")
+async def detect_status_api(file: UploadFile = File(...)):
+    try:
+        image_path = "uploaded_image.jpg"  # Save the image temporarily
+        with open(image_path, "wb") as image_file:
+            image_file.write(file.file.read())
 
-    image_file = request.files['file']
-    image_path = "uploaded_image.jpg"  # Save the image temporarily
+        status = detect_status(image_path)
 
-    image_file.save(image_path)
-    status = detect_status(image_path)
-
-    return jsonify({"status": status})
-
+        return {"status": status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
