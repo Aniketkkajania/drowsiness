@@ -1,17 +1,17 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
+from flask import Flask, request, jsonify
 import cv2
 import numpy as np
 import dlib
 from imutils import face_utils
-import os
 
-app = FastAPI()
-temp_dir = "temp"
-os.makedirs(temp_dir, exist_ok=True)
+app = Flask(__name__)
 
 detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+
+sleep = 0
+drowsy = 0
+active = 0
 
 def compute(ptA, ptB):
     return np.linalg.norm(ptA - ptB)
@@ -22,49 +22,51 @@ def blinked(a, b, c, d, e, f):
     ratio = up / (2.0 * down)
 
     if ratio > 0.25:
-        return "Sleeping"
+        return 2
     elif 0.21 < ratio <= 0.25:
-        return "Drowsy"
+        return 1
     else:
-        return "Active"
+        return 0
 
-def process_image(image_path):
+def detect_status(image_path):
+    global sleep, drowsy, active # Declare these variables as global
+
     frame = cv2.imread(image_path)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
     faces = detector(gray)
+    status = ""
 
-    if not faces:
-        return {"user_status": "No user"}
-
-    user_status = "Active"
     for face in faces:
         landmarks = predictor(gray, face)
         landmarks = face_utils.shape_to_np(landmarks)
 
-        left_blink = blinked(landmarks[36], landmarks[37], landmarks[38], landmarks[41], landmarks[40], landmarks[39])
-        right_blink = blinked(landmarks[42], landmarks[43], landmarks[44], landmarks[47], landmarks[46], landmarks[45])
 
-        if left_blink == "Sleeping" or right_blink == "Sleeping":
-            user_status = "Sleeping"
-        elif left_blink == "Drowsy" or right_blink == "Drowsy":
-            user_status = "Drowsy"
+        left_blink = blinked(landmarks[36], landmarks[37],
+                             landmarks[38], landmarks[41], landmarks[40], landmarks[39])
+        right_blink = blinked(landmarks[42], landmarks[43],
+                              landmarks[44], landmarks[47], landmarks[46], landmarks[45])
 
-        for n in range(0, 68):
-            (x, y) = landmarks[n]
-            cv2.circle(frame, (x, y), 1, (255, 255, 255), -1)
 
-    return {"user_status": user_status}
+        if left_blink == 0 or right_blink == 0:
+            status = "SLEEPING !!!"
+        elif left_blink == 1 or right_blink == 1:
+            status = "Drowsy !"
+        else:
+            status = "Active :)"
 
-@app.post("/analyze_image")
-async def analyze_image(file: UploadFile = File(...)):
-    # Save the uploaded file
-    image_path = f"temp/{file.filename}"
-    with open(image_path, "wb") as f:
-        f.write(file.file.read())
+    return status
 
-    # Process the image and get the user status
-    result = process_image(image_path)
+@app.route('/detect_status', methods=['POST'])
+def detect_status_api():
+    if 'file' not in request.files:
+        return jsonify({"error": "No image provided"}), 400
 
-    # Return the result
-    return JSONResponse(content=result)
+    image_file = request.files['file']
+    image_path = "uploaded_image.jpg"  # Save the image temporarily
+
+    image_file.save(image_path)
+    status = detect_status(image_path)
+
+    return jsonify({"status": status})
 
